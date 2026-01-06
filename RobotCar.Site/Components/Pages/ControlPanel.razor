@@ -8,6 +8,43 @@
 
 <PageTitle>Control Panel</PageTitle>
 
+@if (_showInitializationWarning)
+{
+  <div class="position-fixed top-0 start-0 w-100 h-100"
+       style="background: rgba(0,0,0,0.45); z-index: 1050;">
+    <div class="d-flex align-items-center justify-content-center h-100 px-3">
+      <div class="card shadow-lg" role="dialog" aria-modal="true" style="max-width: 420px; width: 100%;">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+            <h5 class="card-title mb-0">Initialization failed</h5>
+          </div>
+          <p class="card-text mb-2">
+            We couldn't reach the robot, so the initial setup wasn't applied. Check power/WiFi and retry, or
+            skip to continue without a device.
+          </p>
+          @if (!string.IsNullOrWhiteSpace(_lastInitializationError))
+          {
+            <div class="small text-secondary mb-3">@_lastInitializationError</div>
+          }
+          <div class="d-flex gap-2 justify-content-end">
+            <button class="btn btn-outline-secondary"
+                    @onclick="SkipInitializationWarning"
+                    disabled="@_isRetryingInitialization">
+              Skip
+            </button>
+            <button class="btn btn-warning"
+                    @onclick="RetryInitialization"
+                    disabled="@_isRetryingInitialization">
+              @(_isRetryingInitialization ? "Retrying..." : "Retry")
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
 <div class="container mt-3">
   <div class="row justify-content-center">
     <div class="col-12 col-sm-10 col-md-8 col-lg-6 text-center">
@@ -108,9 +145,15 @@
 @code{
   private int _motorPower = 59;
   private readonly TimeSpan _debounceMotorPowerChangeInterval = TimeSpan.FromSeconds(1);
+  private readonly TimeSpan _livenessTimeout = TimeSpan.FromSeconds(3);
   
   private bool _streamEnabled;
   private string _streamSrc = "about:blank";
+  private bool _showInitializationWarning;
+  private bool _initializationSkipped;
+  private bool _isRetryingInitialization;
+  private string? _lastInitializationError;
+  private bool _isRobotAvailable;
   
   private string? _baseAddress;
   private Timer? _debounceMotorPowerChange;
@@ -125,7 +168,16 @@
     }
     
     base.OnInitialized();
-    InitializeMotorPowerDebounce();
+  }
+
+  protected override async Task OnAfterRenderAsync(bool firstRender)
+  {
+    if (firstRender)
+    {
+      await InitializeRobotCarAsync();
+    }
+
+    await base.OnAfterRenderAsync(firstRender);
   }
 
   private async Task HandleMoveForward() => await HandleCommand("go");
@@ -139,6 +191,11 @@
   
   private void HandleMotorPowerChanged()
   {
+    if (!_isRobotAvailable)
+    {
+      return;
+    }
+
     _debounceMotorPowerChange?.Stop();
     _debounceMotorPowerChange?.Start();
   }
@@ -161,19 +218,17 @@
   
   private void InitializeMotorPowerDebounce()
   {
+    if (_debounceMotorPowerChange is not null)
+    {
+      return;
+    }
+
     _debounceMotorPowerChange = new Timer(_debounceMotorPowerChangeInterval);
     _debounceMotorPowerChange.AutoReset = false;
     _debounceMotorPowerChange.Elapsed += async (_, _) =>
     {
-      try
-      {
-        await RobotCarApi.SetMotorPower(_motorPower);
-        Console.WriteLine($"MotorPower sent: {_motorPower}");
-      }
-      catch (Exception e)
-      {
-        Console.WriteLine($"Initialization failed: {e}");
-      }
+      await RobotCarApi.SetMotorPower(_motorPower);
+      Console.WriteLine($"MotorPower sent: {_motorPower}");
     };
   }
   
@@ -195,5 +250,85 @@
   {
     _streamEnabled = false;
     _streamSrc = "about:blank";
+  }
+  
+  private async Task InitializeRobotCarAsync()
+  {
+    if (_initializationSkipped)
+    {
+      return;
+    }
+
+    try
+    {
+      using var cts = new CancellationTokenSource(_livenessTimeout);
+      var result = await RobotCarApi.CheckLiveness(cts.Token);
+      if (result.IsSuccessStatusCode)
+      {
+        await RobotCarApi.SetMotorPower(_motorPower);
+        Console.WriteLine($"Initialization succeeded. MotorPower set to {_motorPower}.");
+
+        _isRobotAvailable = true;
+        InitializeMotorPowerDebounce();
+
+        _showInitializationWarning = false;
+        _initializationSkipped = false;
+        _lastInitializationError = null;
+        await InvokeAsync(StateHasChanged);
+        return;
+      }
+        
+      var reason = string.IsNullOrWhiteSpace(result.ReasonPhrase)
+        ? result.StatusCode.ToString()
+        : result.ReasonPhrase;
+      await HandleInitializationFailure($"RobotCar is not reachable. {reason}");
+    }
+    catch (OperationCanceledException)
+    {
+      await HandleInitializationFailure(
+        $"Initialization timed out after {_livenessTimeout.TotalSeconds:0.#}s.");
+    }
+    catch (Exception e)
+    {
+      await HandleInitializationFailure($"Initialization error: {e.Message}");
+    }
+  }
+
+  private async Task HandleInitializationFailure(string message)
+  {
+    _isRobotAvailable = false;
+    _debounceMotorPowerChange?.Stop();
+    _showInitializationWarning = true;
+    _lastInitializationError = message;
+    Console.WriteLine($"Initialization failed: {message}");
+    await InvokeAsync(StateHasChanged);
+  }
+
+  private async Task RetryInitialization()
+  {
+    if (_isRetryingInitialization)
+    {
+      return;
+    }
+
+    _isRetryingInitialization = true;
+    _lastInitializationError = null;
+    await InvokeAsync(StateHasChanged);
+
+    try
+    {
+      await InitializeRobotCarAsync();
+    }
+    finally
+    {
+      _isRetryingInitialization = false;
+      await InvokeAsync(StateHasChanged);
+    }
+  }
+
+  private void SkipInitializationWarning()
+  {
+    _showInitializationWarning = false;
+    _initializationSkipped = true;
   }
 }
