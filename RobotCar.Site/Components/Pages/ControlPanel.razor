@@ -227,8 +227,15 @@
     _debounceMotorPowerChange.AutoReset = false;
     _debounceMotorPowerChange.Elapsed += async (_, _) =>
     {
-      await RobotCarApi.SetMotorPower(_motorPower);
-      Console.WriteLine($"MotorPower sent: {_motorPower}");
+      try
+      {
+        await RobotCarApi.SetMotorPower(_motorPower);
+        Console.WriteLine($"MotorPower sent: {_motorPower}");
+      }
+      catch (Exception e)
+      {
+        Console.WriteLine($"MotorPower update failed: {e}");
+      }
     };
   }
   
