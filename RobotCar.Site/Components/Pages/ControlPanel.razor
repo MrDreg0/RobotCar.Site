@@ -269,8 +269,8 @@
     try
     {
       using var cts = new CancellationTokenSource(_livenessTimeout);
-      var result = await RobotCarApi.CheckLiveness(cts.Token);
-      if (result.IsSuccessStatusCode)
+      using var response = await RobotCarApi.CheckLiveness(cts.Token);
+      if (response.IsSuccessStatusCode)
       {
         await RobotCarApi.SetMotorPower(_motorPower);
         Console.WriteLine($"Initialization succeeded. MotorPower set to {_motorPower}.");
@@ -285,9 +285,9 @@
         return;
       }
         
-      var reason = string.IsNullOrWhiteSpace(result.ReasonPhrase)
-        ? result.StatusCode.ToString()
-        : result.ReasonPhrase;
+      var reason = string.IsNullOrWhiteSpace(response.ReasonPhrase)
+        ? response.StatusCode.ToString()
+        : response.ReasonPhrase;
       await HandleInitializationFailure($"RobotCar is not reachable. {reason}");
     }
     catch (OperationCanceledException)
