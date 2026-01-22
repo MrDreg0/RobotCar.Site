@@ -8,4 +8,7 @@ public interface IRobotCarApi
   
   [Post("/motorPower/{motorPower}")]
   Task SetMotorPower(int motorPower);
+  
+  [Get("/live")]
+  Task<HttpResponseMessage> CheckLiveness(CancellationToken cancellationToken = default);
 }
