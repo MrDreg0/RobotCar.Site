@@ -75,16 +75,11 @@
       </div>
 
       <div class="d-flex justify-content-center gap-3 mt-4">
-        <button class="btn btn-warning d-flex align-items-center gap-2 px-5"
-                id="lightOnBtn"
-                @onclick="HandleLedOn">
-          <i class="bi bi-lightbulb-fill"></i> ON
-        </button>
-
-        <button class="btn btn-secondary d-flex align-items-center gap-2 px-5"
-                id="lightOffBtn"
-                @onclick="HandleLedOff">
-          <i class="bi bi-lightbulb-off-fill"></i> OFF
+        <button class="btn d-flex align-items-center gap-2 px-5 @(_ledEnabled ? "btn-warning" : "btn-secondary")"
+                id="lightToggleBtn"
+                @onclick="ToggleLed">
+          <i class="bi @(_ledEnabled ? "bi-lightbulb-fill" : "bi-lightbulb-off-fill")"></i>
+          @(_ledEnabled ? "ON" : "OFF")
         </button>
       </div>
         
@@ -111,6 +106,7 @@
   
   private bool _streamEnabled;
   private string _streamSrc = "about:blank";
+  private bool _ledEnabled;
   
   private string? _baseAddress;
   private Timer? _debounceMotorPowerChange;
@@ -134,8 +130,19 @@
   private async Task HandleMoveRight() => await HandleCommand("right");
   private async Task HandleStop() => await HandleCommand("stop");
 
-  private async Task HandleLedOff() => await HandleCommand("ledoff");
-  private async Task HandleLedOn() => await HandleCommand("ledon");
+  private void ToggleLed()
+  {
+    if (_ledEnabled)
+    {
+      HandleCommand("ledoff");
+      _ledEnabled = false;
+    }
+    else
+    {
+      HandleCommand("ledon");
+      _ledEnabled = true;
+    }
+  }
   
   private void HandleMotorPowerChanged()
   {
